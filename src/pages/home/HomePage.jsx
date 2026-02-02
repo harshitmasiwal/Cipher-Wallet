@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react"; 
 import { useNavigate } from "react-router";
-// import { decodeSecret } from "../../core/functions/wallet"; // <-- NOT NEEDED ANYMORE HERE
+// import { decodeSecret } from "../../core/functions/wallet"; 
 import { fetchAllBalances } from "../../core/api/balanceService";
 import { 
   fetchBtcMainHistory, fetchBtcTestHistory,
@@ -15,7 +15,7 @@ import DepositModal from "./DepositModal";
 import TransactionHistory from "./TransactionHistory"; 
 
 import { 
-  Send, ArrowDownToLine, RefreshCw, LogOut, CreditCard, Settings, Check, TrendingUp, Lock, Wifi, WifiOff
+  Send, ArrowDownToLine, RefreshCw, LogOut, CreditCard, Settings, Check, TrendingUp, Lock, Wifi, WifiOff, Calculator, X, ArrowRightLeft 
 } from "lucide-react";
 import { BitcoinIcon, SolanaIcon , EthereumIcon, CypherLogo } from "./icons";
 import { Spinner } from "@/components/ui/spinner";
@@ -115,24 +115,14 @@ export default function HomePage() {
 
   // --- INIT EFFECTS ---
 
-  // 1. Handle Wallet Existence Check
   useEffect(() => {
     const secret = localStorage.getItem("secret");
-    
-    // If no wallet exists (cleared cache etc), go to startup
     if (!secret) { 
         navigate("/"); 
         return; 
     }
-
-    // FIX APPLIED HERE:
-    // We REMOVED the "sessionStorage" auto-unlock logic.
-    // Now, on refresh, isWalletLocked defaults to 'true' (from Context),
-    // and we do nothing to change it. Result: Locked screen.
-
   }, [navigate]);
 
-  // 2. Data Fetching
   useEffect(() => {
     if (walletData) {
       refreshBalances(); 
@@ -163,7 +153,6 @@ export default function HomePage() {
   }, []);
 
   const handleLock = () => {
-    // Also clear session storage on manual lock for security
     sessionStorage.removeItem("wallet_pwd");
     setWalletData(null);
     setIsWalletLocked(true);
@@ -198,7 +187,6 @@ export default function HomePage() {
   const isHistoryLoading = Object.values(history).some(h => h.loading);
 
   if (isWalletLocked) return <InputPassword />;
-  // Small fix: Added "|| loadingBalances" so spinner shows if data exists but is updating
   if (!walletData) return <div className="h-screen bg-gray-50 flex items-center justify-center font-bold text-gray-400"><Spinner /></div>;
 
   return (
@@ -218,23 +206,33 @@ export default function HomePage() {
           </div>
           
           <div className="flex items-center gap-2 md:gap-3">
-          <div className={`h-11 px-3 md:px-4 rounded-[14px] border flex items-center gap-2 transition-all duration-300 ${
+            <div className={`h-11 px-3 md:px-4 rounded-[14px] border flex items-center gap-2 transition-all duration-300 ${
                 isOnline 
                 ? 'bg-zinc-100 border-emerald-300 text-emerald-900' 
                 : 'bg-zinc-100 border-red-500 text-red-600'
             }`}>
-                {isOnline ? <Wifi size={18} strokeWidth={2.5} /> : <WifiOff size={18} strokeWidth={2.5} />}
+                {isOnline ? <Wifi size={15}  strokeWidth={2.5} /> : <WifiOff size={18} strokeWidth={2.5} />}
                 <span className="text-xs font-bold hidden sm:block">
                     {isOnline ? 'Online' : 'No Network'}
                 </span>
             </div>
             
+            {/* --- NEW: CALCULATOR BUTTON --- */}
+            <button 
+              onClick={() => setModalOpen('converter')} 
+              className="p-3 rounded-[14px] bg-white border border-gray-100 text-zinc-400 hover:text-black hover:shadow-md active:scale-95 transition-all duration-200"
+              title="Converter Calculator"
+            >
+              <Calculator size={15} />
+            </button>
+            {/* ----------------------------- */}
+
             <button 
               onClick={() => refreshBalances(true)} 
               className="p-3 rounded-[14px] bg-white border border-gray-100 text-zinc-400 hover:text-black hover:shadow-md active:scale-95 transition-all duration-200"
               title="Refresh Data"
             >
-              <RefreshCw size={20} className={loadingBalances ? "animate-spin" : ""} />
+              <RefreshCw size={15} className={loadingBalances ? "animate-spin" : ""} />
             </button>
 
             <div className="relative" ref={settingsRef}>
@@ -242,7 +240,7 @@ export default function HomePage() {
                     onClick={() => setSettingsOpen(!settingsOpen)}
                     className={`p-3 rounded-[14px] border transition-all duration-200 active:scale-95 flex items-center gap-2 ${settingsOpen ? 'bg-zinc-100 border-zinc-300 text-black' : 'bg-white border-gray-100 text-zinc-500 hover:text-black hover:shadow-md'}`}
                 >
-                    <Settings size={20} />
+                    <Settings size={15} />
                 </button>
 
                 {settingsOpen && (
@@ -390,6 +388,7 @@ export default function HomePage() {
           isDevnet={isDevnet}
           walletData={walletData}  
           balances={balances}
+          prices={prices} // Pass prices so send modal can calculate fee in USD too
           onTxSuccess={() => {
               refreshBalances(true); 
               refreshAllHistory();
@@ -409,6 +408,16 @@ export default function HomePage() {
         <DepositModal
           onClose={() => setModalOpen(null)}
           walletData={walletData} 
+        />
+      )}
+
+      {/* --- NEW: CONVERTER MODAL --- */}
+      {modalOpen === 'converter' && (
+        <ConverterModal
+          onClose={() => setModalOpen(null)}
+          prices={prices}
+          balances={balances}
+          isDevnet={isDevnet}
         />
       )}
     </div>
@@ -455,5 +464,159 @@ const AssetRow = ({ ticker, name, amount, price, icon, color }) => {
             <p className="text-[10px] md:text-xs text-zinc-400 font-medium">@ ${price.toLocaleString()}</p>
         </div>
       </div>
+    );
+};
+
+// --- NEW COMPONENT: CONVERTER MODAL ---
+const ConverterModal = ({ onClose, prices, balances, isDevnet }) => {
+    const [chain, setChain] = useState("BTC"); // BTC, ETH, SOL
+    const [cryptoAmount, setCryptoAmount] = useState("");
+    const [usdAmount, setUsdAmount] = useState("");
+
+    const getPrice = () => {
+        if(chain === 'BTC') return prices.btc;
+        if(chain === 'ETH') return prices.eth;
+        if(chain === 'SOL') return prices.sol;
+        return 0;
+    };
+
+    const getBalance = () => {
+        if(chain === 'BTC') return isDevnet ? balances.btcTest : balances.btcMain;
+        if(chain === 'ETH') return isDevnet ? balances.ethSepolia : balances.ethMain;
+        if(chain === 'SOL') return isDevnet ? balances.solDevnet : balances.solMain;
+        return "0.00";
+    }
+
+    const handleCryptoChange = (e) => {
+        const val = e.target.value;
+        setCryptoAmount(val);
+        
+        const price = getPrice();
+        if (val && !isNaN(val) && price > 0) {
+            const usd = parseFloat(val) * price;
+            setUsdAmount(usd.toFixed(2));
+        } else {
+            setUsdAmount("");
+        }
+    };
+
+    const handleUsdChange = (e) => {
+        const val = e.target.value;
+        setUsdAmount(val);
+
+        const price = getPrice();
+        if (val && !isNaN(val) && price > 0) {
+            const crypto = parseFloat(val) / price;
+            setCryptoAmount(crypto.toFixed(8)); // 8 decimals for crypto
+        } else {
+            setCryptoAmount("");
+        }
+    };
+
+    const handleMax = () => {
+        const bal = getBalance();
+        setCryptoAmount(bal);
+        const price = getPrice();
+        if(bal && price > 0) {
+            setUsdAmount((parseFloat(bal) * price).toFixed(2));
+        }
+    };
+
+    // Icons mapping
+    const getIcon = () => {
+        if(chain === 'BTC') return <BitcoinIcon />;
+        if(chain === 'ETH') return <EthereumIcon />;
+        if(chain === 'SOL') return <SolanaIcon />;
+        return null;
+    }
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-[28px] shadow-2xl w-full max-w-sm overflow-hidden border border-zinc-200">
+                <div className="flex justify-between items-center p-5 border-b border-zinc-100">
+                    <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                        <Calculator size={20} className="text-zinc-500" /> 
+                        Converter
+                    </h3>
+                    <button onClick={onClose} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
+                        <X size={20} className="text-zinc-500" />
+                    </button>
+                </div>
+
+                <div className="p-5 space-y-6">
+                    
+                    {/* TABS */}
+                    <div className="flex bg-zinc-100 p-1 rounded-xl">
+                        {['BTC', 'ETH', 'SOL'].map((c) => (
+                            <button
+                                key={c}
+                                onClick={() => { setChain(c); setCryptoAmount(""); setUsdAmount(""); }}
+                                className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
+                                    chain === c ? "bg-white text-black shadow-sm" : "text-zinc-400 hover:text-zinc-600"
+                                }`}
+                            >
+                                {c}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* CURRENT RATE DISPLAY */}
+                    <div className="text-center">
+                        <p className="text-xs text-zinc-400 font-bold uppercase tracking-wider">Current Rate</p>
+                        <p className="text-2xl font-extrabold text-zinc-900 mt-1">
+                            ${getPrice().toLocaleString()}
+                        </p>
+                    </div>
+
+                    {/* CONVERSION INPUTS */}
+                    <div className="space-y-4">
+                        
+                        {/* Crypto Input */}
+                        <div className="space-y-1">
+                            <div className="flex justify-between text-xs px-1">
+                                <span className="font-bold text-zinc-500">Amount ({chain})</span>
+                                <button onClick={handleMax} className="text-purple-700 font-bold hover:underline">
+                                    Your Balance: {getBalance()}
+                                </button>
+                            </div>
+                            <div className="relative">
+                                <input 
+                                    type="number" 
+                                    value={cryptoAmount} 
+                                    onChange={handleCryptoChange}
+                                    placeholder="0.00"
+                                    className="w-full p-4 bg-zinc-50 border border-zinc-200 rounded-xl font-mono font-bold text-lg focus:outline-none focus:ring-2 focus:ring-black/5 transition-all"
+                                />
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 scale-75 mr-4 opacity-50 pointer-events-none">
+                                    {getIcon()}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-center -my-2 relative z-10">
+                            <div className="bg-white border border-zinc-100 p-2 rounded-full shadow-sm">
+                                <ArrowRightLeft size={16} className="text-zinc-400" />
+                            </div>
+                        </div>
+
+                        {/* USD Input */}
+                        <div className="space-y-1">
+                            <span className="text-xs font-bold text-zinc-500 px-1">Amount (USD)</span>
+                            <div className="relative">
+                                <input 
+                                    type="number" 
+                                    value={usdAmount} 
+                                    onChange={handleUsdChange}
+                                    placeholder="0.00"
+                                    className="w-full p-4 bg-zinc-50 border border-zinc-200 rounded-xl font-mono font-bold text-lg focus:outline-none focus:ring-2 focus:ring-black/5 transition-all pl-8"
+                                />
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 font-bold">$</span>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
     );
 };
