@@ -1,14 +1,9 @@
-// 
-
-
 import React from "react";
 import { Routes, Route, Navigate, Outlet } from "react-router"; 
 import StartupPage from "./pages/StartupPage";
 import CreateWalletPage from "./pages/CreateWalletPage";
 import HomePage from "./pages/home/HomePage";
 import ImportWalletPage from "./pages/ImportWalletPage";
-// We don't need useWallet here anymore for the route logic
-// to prevent the infinite loop.
 
 
 const ProtectedRoute = () => {
@@ -18,18 +13,12 @@ const ProtectedRoute = () => {
   if (!secret) {
     return <Navigate to="/" replace />;
   }
-
-  // REMOVED: The check for isWalletLocked.
-  // We let the <HomePage> handle showing the Lock Screen.
-  // This prevents the PublicRoute <-> ProtectedRoute conflict.
-
   return <Outlet />;
 };
 
 const PublicRoute = () => {
   const secret = localStorage.getItem("secret");
 
-  // If a wallet exists, don't let them see startup pages
   if (secret) {
     return <Navigate to="/home" replace />;
   }
