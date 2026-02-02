@@ -1,4 +1,4 @@
-// import { useEffect, useState, useMemo, useRef } from "react";
+// import { useEffect, useState, useMemo, useRef, useCallback } from "react"; 
 // import { useNavigate } from "react-router";
 // import { decodeSecret } from "../../core/functions/wallet";
 // import { fetchAllBalances } from "../../core/api/balanceService";
@@ -47,46 +47,113 @@
 //     solDev: { data: [], loading: false },
 //   });
 
+//   // --- 1. REF FOR CACHING ---
+//   const lastPriceFetch = useRef(0);
 
-//   const fetchPrices = async () => {
+//   // --- SAFE DATA FETCHING ---
+  
+//   // Updated fetchPrices with throttling
+//   const fetchPrices = useCallback(async (force = false) => {
+//     const now = Date.now();
+    
+//     // Prevent fetching if less than 60 seconds have passed, unless 'force' is true
+//     if (!force && (now - lastPriceFetch.current < 60000)) {
+//         return;
+//     }
+
 //     try {
 //         const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd");
+        
+//         if (!res.ok) {
+//             if (res.status === 429) console.warn("CoinGecko Rate Limit Hit");
+//             return;
+//         }
+
 //         const data = await res.json();
 //         setPrices({
 //             btc: data.bitcoin.usd,
 //             eth: data.ethereum.usd,
 //             sol: data.solana.usd
 //         });
+        
+//         // Update the timestamp only on success
+//         lastPriceFetch.current = now; 
 //     } catch (error) {
 //         console.error("Failed to fetch prices", error);
 //     }
-//   };
-
-//   // --- INIT ---
-//   useEffect(() => {
-//     fetchPrices(); // Fetch on mount
 //   }, []);
 
-//   useEffect(() => {
-//     if (walletData) return;
-//     const secret = localStorage.getItem("secret");
-//     if (!secret) { navigate("/"); return; }
-//     if (isWalletLocked) return;
+//   const refreshBalances = useCallback((force = false) => {
+//     if (!walletData) return;
+
+//     setLoadingBalances(true);
     
-//     const password = sessionStorage.getItem("wallet_pwd"); 
-//     if (password) {
-//       const wallet = decodeSecret(secret, password);
-//       if (!wallet || wallet.error) { navigate("/"); return; }
-//       setWalletData(wallet);
-//     }
-//   }, [isWalletLocked, walletData, navigate, setWalletData]);
+//     // Pass 'force' to allow manual refresh button to bypass cache
+//     fetchPrices(force); 
+
+//     fetchAllBalances(walletData).then((data) => {
+//       if (data) setBalances(data);
+//       setLoadingBalances(false);
+//     }).catch(err => setLoadingBalances(false));
+//   }, [walletData, fetchPrices]);
+
+//   const refreshAllHistory = useCallback(() => {
+//     if(!walletData) return; 
+
+//     const refreshHistory = async (networkKey, fetcher, address) => {
+//         setHistory(prev => ({ ...prev, [networkKey]: { ...prev[networkKey], loading: true } }));
+//         try {
+//             const data = await fetcher(address);
+//             setHistory(prev => ({ ...prev, [networkKey]: { data: data || [], loading: false } }));
+//         } catch (e) {
+//              setHistory(prev => ({ ...prev, [networkKey]: { ...prev[networkKey], loading: false } }));
+//         }
+//     };
+
+//     if(walletData.bitcoinMain) refreshHistory('btcMain', fetchBtcMainHistory, walletData.bitcoinMain.address);
+//     if(walletData.bitcoinTest) refreshHistory('btcTest', fetchBtcTestHistory, walletData.bitcoinTest.address);
+//     if(walletData.ethereum) refreshHistory('ethMain', fetchEthMainHistory, walletData.ethereum.address);
+//     if(walletData.ethereum) refreshHistory('ethSepolia', fetchEthSepoliaHistory, walletData.ethereum.address);
+//     if(walletData.solana) refreshHistory('solMain', fetchSolMainHistory, walletData.solana.address);
+//     if(walletData.solana) refreshHistory('solDev', fetchSolDevHistory, walletData.solana.address);
+//   }, [walletData]);
+
+//   // --- INIT EFFECTS ---
 
 //   useEffect(() => {
+//     const secret = localStorage.getItem("secret");
+//     if (!secret) { 
+//         navigate("/"); 
+//         return; 
+//     }
+//     if (!isWalletLocked && walletData) return;
+
+//     const password = sessionStorage.getItem("wallet_pwd"); 
+    
+//     if (password && isWalletLocked) {
+//       try {
+//           const wallet = decodeSecret(secret, password);
+//           if (wallet && !wallet.error) { 
+//             setWalletData(wallet);
+//             setIsWalletLocked(false);
+//           }
+//       } catch (e) {
+//           console.error("Auto-unlock failed", e);
+//       }
+//     }
+//   }, [isWalletLocked, walletData, navigate, setWalletData, setIsWalletLocked]);
+
+//   // 2. Data Fetching
+//   useEffect(() => {
+//     // REMOVED: fetchPrices(); <--- This was the duplicate call causing the 429 error
+    
 //     if (walletData) {
-//       refreshBalances();
+//       // We call this without arguments, so it uses the cache logic
+//       refreshBalances(); 
 //       refreshAllHistory(); 
 //     }
-//   }, [walletData]);
+//   }, [walletData, refreshBalances, refreshAllHistory]); // fetchPrices removed from deps
+
 
 //   const settingsRef = useRef(null);
 //   useEffect(() => {
@@ -100,57 +167,25 @@
 //   }, [settingsRef]);
 
 //   useEffect(() => {
-//     const handleStatusChange = () => {
-//       setIsOnline(navigator.onLine);
-//     };
-
+//     const handleStatusChange = () => setIsOnline(navigator.onLine);
 //     window.addEventListener('online', handleStatusChange);
 //     window.addEventListener('offline', handleStatusChange);
-
 //     return () => {
 //       window.removeEventListener('online', handleStatusChange);
 //       window.removeEventListener('offline', handleStatusChange);
 //     };
 //   }, []);
-//   // --- LOGIC ---
+
 //   const handleLock = () => {
 //     sessionStorage.removeItem("wallet_pwd");
 //     setWalletData(null);
 //     setIsWalletLocked(true);
 //   };
 
-// const handleLogout = () => {
+//   const handleLogout = () => {
 //     localStorage.clear();
-//     sessionStorage.clear(); // It's good practice to clear session storage too
-//     window.location.href = "/"; // This forces a hard browser reload/redirect to root
-//   };
-
-//   const refreshBalances = () => {
-//     setLoadingBalances(true);
-    
-//     // 2. Call fetchPrices here so the button updates the price too
-//     fetchPrices(); 
-
-//     fetchAllBalances(walletData).then((data) => {
-//       if (data) setBalances(data);
-//       setLoadingBalances(false);
-//     });
-//   };
-
-//   const refreshAllHistory = () => {
-//     if(!walletData) return;
-//     const refreshHistory = async (networkKey, fetcher, address) => {
-//         setHistory(prev => ({ ...prev, [networkKey]: { ...prev[networkKey], loading: true } }));
-//         const data = await fetcher(address);
-//         setHistory(prev => ({ ...prev, [networkKey]: { data: data || [], loading: false } }));
-//     };
-
-//     refreshHistory('btcMain', fetchBtcMainHistory, walletData.bitcoinMain.address);
-//     refreshHistory('btcTest', fetchBtcTestHistory, walletData.bitcoinTest.address);
-//     refreshHistory('ethMain', fetchEthMainHistory, walletData.ethereum.address);
-//     refreshHistory('ethSepolia', fetchEthSepoliaHistory, walletData.ethereum.address);
-//     refreshHistory('solMain', fetchSolMainHistory, walletData.solana.address);
-//     refreshHistory('solDev', fetchSolDevHistory, walletData.solana.address);
+//     sessionStorage.clear();
+//     window.location.href = "/";
 //   };
 
 //   const displayedHistory = useMemo(() => {
@@ -176,19 +211,16 @@
 //   const isHistoryLoading = Object.values(history).some(h => h.loading);
 
 //   if (isWalletLocked) return <InputPassword />;
-//   if (!walletData) return <div className="h-screen bg-gray-50 flex items-center justify-center font-bold text-gray-400"><Spinner></Spinner></div>;
+//   if (!walletData) return <div className="h-screen bg-gray-50 flex items-center justify-center font-bold text-gray-400"><Spinner /></div>;
 
 //   return (
 //     <div className="md:h-210 bg-[#FAFAFA] text-gray-900 font-sans flex flex-col items-center">
-//     <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-size-[24px_24px]"></div>
+//        <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-size-[24px_24px]"></div>
       
-//       {/* Background Ambience */}
 //       <div className="fixed top-0 left-0 w-full h-96 bg-linear-to-b from-gray-100 to-transparent -z-10"></div>
 
-//       {/* Main Container */}
 //       <div className="w-full max-w-7xl px-4 py-6 md:p-8 flex flex-col min-h-screen lg:h-screen">
         
-//         {/* HEADER */}
 //         <div className="flex z-6 justify-between items-center mb-6 md:mb-8 shrink-0">
 //           <div className="flex items-center gap-3">
 //              <div className="w-10 h-10 md:w-11 md:h-11 bg-black rounded-[14px] flex items-center justify-center text-white shadow-lg shadow-black/10">
@@ -208,15 +240,16 @@
 //                     {isOnline ? 'Online' : 'No Network'}
 //                 </span>
 //             </div>
+            
+//             {/* UPDATED: Pass true to refreshBalances to force bypass the cache */}
 //             <button 
-//               onClick={refreshBalances} 
+//               onClick={() => refreshBalances(true)} 
 //               className="p-3 rounded-[14px] bg-white border border-gray-100 text-zinc-400 hover:text-black hover:shadow-md active:scale-95 transition-all duration-200"
 //               title="Refresh Data"
 //             >
 //               <RefreshCw size={20} className={loadingBalances ? "animate-spin" : ""} />
 //             </button>
 
-//             {/* SETTINGS DROPDOWN */}
 //             <div className="relative" ref={settingsRef}>
 //                 <button 
 //                     onClick={() => setSettingsOpen(!settingsOpen)}
@@ -276,7 +309,6 @@
 //           {/* LEFT COLUMN: BALANCE & ASSETS */}
 //           <div className="flex flex-col gap-4 md:gap-6 h-auto lg:h-full lg:min-h-0">
             
-//             {/* Total Balance Card */}
 //             <div className="bg-white rounded-[32px] p-6 md:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 flex flex-col justify-between shrink-0 h-auto lg:h-60">
 //                 <div>
 //                     <div className="flex justify-between items-start mt-2 md:mt-5 mb-4">
@@ -295,45 +327,39 @@
 //                 </div>
 //             </div>
 
-//             {/* Assets List */}
-//             {/* 3. Updated class to h-100 */}
 //             <div className={`bg-white rounded-[32px] p-6 md:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 h-80 flex flex-col md:min-h-100 overflow-hidden `}>
-                
 //                 <h3 className=" font-bold uppercase tracking-tight mb-4 md:mb-6 shrink-0">Your Assets</h3>
-                
 //                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3">
-//     <AssetRow 
-//         ticker="BTC" 
-//         name="Bitcoin" 
-//         amount={isDevnet ? balances.btcTest : balances.btcMain} 
-//         price={prices.btc}
-//         icon={<BitcoinIcon />} 
-//         color="bg-[#FFF6ED] text-[#F7931A] border-[#FFEAD5]"
-//     />
-//     <AssetRow 
-//         ticker="ETH" 
-//         name="Ethereum" 
-//         amount={isDevnet ? balances.ethSepolia : balances.ethMain} 
-//         price={prices.eth}
-//         icon={<EthereumIcon />} 
-//         color="bg-[#F0F5FF] text-[#627EEA] border-[#DCE6FF]"
-//     />
-//     <AssetRow 
-//         ticker="SOL" 
-//         name="Solana" 
-//         amount={isDevnet ? balances.solDevnet : balances.solMain} 
-//         price={prices.sol}
-//         icon={<SolanaIcon />} 
-//         color="bg-[#ECFDF5] text-[#14F195] border-[#D1FAE5]"
-//     />
-// </div>
+//                     <AssetRow 
+//                         ticker="BTC" 
+//                         name="Bitcoin" 
+//                         amount={isDevnet ? balances.btcTest : balances.btcMain} 
+//                         price={prices.btc}
+//                         icon={<BitcoinIcon />} 
+//                         color="bg-[#FFF6ED] text-[#F7931A] border-[#FFEAD5]"
+//                     />
+//                     <AssetRow 
+//                         ticker="ETH" 
+//                         name="Ethereum" 
+//                         amount={isDevnet ? balances.ethSepolia : balances.ethMain} 
+//                         price={prices.eth}
+//                         icon={<EthereumIcon />} 
+//                         color="bg-[#F0F5FF] text-[#627EEA] border-[#DCE6FF]"
+//                     />
+//                     <AssetRow 
+//                         ticker="SOL" 
+//                         name="Solana" 
+//                         amount={isDevnet ? balances.solDevnet : balances.solMain} 
+//                         price={prices.sol}
+//                         icon={<SolanaIcon />} 
+//                         color="bg-[#ECFDF5] text-[#14F195] border-[#D1FAE5]"
+//                     />
+//                 </div>
 //             </div>
 //           </div>
 
 //           {/* RIGHT COLUMN: ACTIONS & HISTORY */}
 //           <div className="flex flex-col gap-4 md:gap-6 h-auto lg:h-full lg:min-h-0">
-            
-//             {/* Quick Actions */}
 //             <div className="bg-white rounded-[32px] p-6 md:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 shrink-0 h-auto lg:h-60 flex flex-col justify-center">
 //                  <h2 className="font-bold text-zinc-900 mb-4 md:mb-6">Quick Actions</h2>
 //                  <div className="grid grid-cols-3 gap-3 md:gap-6 h-28 lg:h-full">
@@ -359,8 +385,6 @@
 //                 </div>
 //             </div>
 
-//             {/* Transaction History */}
-//             {/* 3. Updated class to h-100 */}
 //             <div className={`bg-white rounded-[32px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 overflow-hidden flex flex-col min-h-100`}>
 //                 <TransactionHistory 
 //                     transactions={displayedHistory} 
@@ -368,7 +392,6 @@
 //                     onRefresh={refreshAllHistory}
 //                 />
 //             </div>
-
 //           </div>
 //         </div>
 //       </div>
@@ -381,7 +404,7 @@
 //           walletData={walletData}  
 //           balances={balances}
 //           onTxSuccess={() => {
-//               refreshBalances();
+//               refreshBalances(true); // Force refresh on success
 //               refreshAllHistory();
 //           }}
 //         />
@@ -406,7 +429,6 @@
 // }
 
 // // --- SUB-COMPONENTS ---
-
 // const ActionButton = ({ icon, label, onClick, disabled, secondary }) => (
 //   <button 
 //     onClick={onClick}
@@ -450,9 +472,9 @@
 // };
 
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react"; 
 import { useNavigate } from "react-router";
-import { decodeSecret } from "../../core/functions/wallet";
+// import { decodeSecret } from "../../core/functions/wallet"; // <-- NOT NEEDED ANYMORE HERE
 import { fetchAllBalances } from "../../core/api/balanceService";
 import { 
   fetchBtcMainHistory, fetchBtcTestHistory,
@@ -499,91 +521,100 @@ export default function HomePage() {
     solDev: { data: [], loading: false },
   });
 
-  // --- API FUNCTIONS ---
-  const fetchPrices = async () => {
+  // --- 1. REF FOR CACHING ---
+  const lastPriceFetch = useRef(0);
+
+  // --- SAFE DATA FETCHING ---
+  const fetchPrices = useCallback(async (force = false) => {
+    const now = Date.now();
+    
+    // Prevent fetching if less than 60 seconds have passed, unless 'force' is true
+    if (!force && (now - lastPriceFetch.current < 60000)) {
+        return;
+    }
+
     try {
         const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd");
+        
+        if (!res.ok) {
+            if (res.status === 429) console.warn("CoinGecko Rate Limit Hit");
+            return;
+        }
+
         const data = await res.json();
         setPrices({
             btc: data.bitcoin.usd,
             eth: data.ethereum.usd,
             sol: data.solana.usd
         });
+        
+        lastPriceFetch.current = now; 
     } catch (error) {
         console.error("Failed to fetch prices", error);
     }
-  };
+  }, []);
 
-  const refreshBalances = () => {
+  const refreshBalances = useCallback((force = false) => {
     if (!walletData) return;
+
     setLoadingBalances(true);
-    fetchPrices(); 
+    fetchPrices(force); 
 
     fetchAllBalances(walletData).then((data) => {
       if (data) setBalances(data);
       setLoadingBalances(false);
-    });
-  };
+    }).catch(err => setLoadingBalances(false));
+  }, [walletData, fetchPrices]);
 
-  const refreshAllHistory = () => {
-    if(!walletData) return;
+  const refreshAllHistory = useCallback(() => {
+    if(!walletData) return; 
+
     const refreshHistory = async (networkKey, fetcher, address) => {
         setHistory(prev => ({ ...prev, [networkKey]: { ...prev[networkKey], loading: true } }));
-        const data = await fetcher(address);
-        setHistory(prev => ({ ...prev, [networkKey]: { data: data || [], loading: false } }));
+        try {
+            const data = await fetcher(address);
+            setHistory(prev => ({ ...prev, [networkKey]: { data: data || [], loading: false } }));
+        } catch (e) {
+             setHistory(prev => ({ ...prev, [networkKey]: { ...prev[networkKey], loading: false } }));
+        }
     };
 
-    refreshHistory('btcMain', fetchBtcMainHistory, walletData.bitcoinMain.address);
-    refreshHistory('btcTest', fetchBtcTestHistory, walletData.bitcoinTest.address);
-    refreshHistory('ethMain', fetchEthMainHistory, walletData.ethereum.address);
-    refreshHistory('ethSepolia', fetchEthSepoliaHistory, walletData.ethereum.address);
-    refreshHistory('solMain', fetchSolMainHistory, walletData.solana.address);
-    refreshHistory('solDev', fetchSolDevHistory, walletData.solana.address);
-  };
-
-  // --- EFFECT: INITIAL AUTH CHECK & AUTO-UNLOCK ---
-  useEffect(() => {
-    // 1. If wallet data already exists, we are good.
-    if (walletData) return;
-
-    // 2. Check if a wallet exists in storage at all
-    const secret = localStorage.getItem("secret");
-    if (!secret) { 
-      navigate("/"); 
-      return; 
-    }
-    
-    // 3. AUTO-UNLOCK: Check if we have a session password (from refresh)
-    const password = sessionStorage.getItem("wallet_pwd"); 
-    if (password) {
-      try {
-        const wallet = decodeSecret(secret, password);
-        if (wallet && !wallet.error) {
-          setWalletData(wallet);
-          setIsWalletLocked(false);
-        }
-      } catch (err) {
-        console.error("Auto-unlock failed", err);
-      }
-    }
-    // Note: We removed the `if (isWalletLocked) return` check here
-    // to ensure the auto-unlock logic above actually runs.
-  }, [walletData, navigate, setWalletData, setIsWalletLocked]);
-
-  // --- EFFECT: DATA FETCHING ---
-  useEffect(() => {
-    fetchPrices(); // Fetch prices once on mount
-  }, []);
-
-  useEffect(() => {
-    // Only fetch data if we have the wallet object
-    if (walletData) {
-      refreshBalances();
-      refreshAllHistory(); 
-    }
+    if(walletData.bitcoinMain) refreshHistory('btcMain', fetchBtcMainHistory, walletData.bitcoinMain.address);
+    if(walletData.bitcoinTest) refreshHistory('btcTest', fetchBtcTestHistory, walletData.bitcoinTest.address);
+    if(walletData.ethereum) refreshHistory('ethMain', fetchEthMainHistory, walletData.ethereum.address);
+    if(walletData.ethereum) refreshHistory('ethSepolia', fetchEthSepoliaHistory, walletData.ethereum.address);
+    if(walletData.solana) refreshHistory('solMain', fetchSolMainHistory, walletData.solana.address);
+    if(walletData.solana) refreshHistory('solDev', fetchSolDevHistory, walletData.solana.address);
   }, [walletData]);
 
-  // --- EFFECT: UI HELPERS ---
+  // --- INIT EFFECTS ---
+
+  // 1. Handle Wallet Existence Check
+  useEffect(() => {
+    const secret = localStorage.getItem("secret");
+    
+    // If no wallet exists (cleared cache etc), go to startup
+    if (!secret) { 
+        navigate("/"); 
+        return; 
+    }
+
+    // FIX APPLIED HERE:
+    // We REMOVED the "sessionStorage" auto-unlock logic.
+    // Now, on refresh, isWalletLocked defaults to 'true' (from Context),
+    // and we do nothing to change it. Result: Locked screen.
+
+  }, [navigate]);
+
+  // 2. Data Fetching
+  useEffect(() => {
+    if (walletData) {
+      refreshBalances(); 
+      refreshAllHistory(); 
+    }
+  }, [walletData, refreshBalances, refreshAllHistory]);
+
+
   const settingsRef = useRef(null);
   useEffect(() => {
     function handleClickOutside(event) {
@@ -605,23 +636,19 @@ export default function HomePage() {
     };
   }, []);
 
-  // --- HANDLERS ---
   const handleLock = () => {
+    // Also clear session storage on manual lock for security
     sessionStorage.removeItem("wallet_pwd");
     setWalletData(null);
     setIsWalletLocked(true);
   };
 
   const handleLogout = () => {
-    const confirm = window.confirm("Are you sure? Make sure you have your recovery phrase saved.");
-    if (confirm) {
-        localStorage.clear();
-        sessionStorage.clear();
-        window.location.href = "/";
-    }
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.href = "/";
   };
 
-  // --- COMPUTED ---
   const displayedHistory = useMemo(() => {
     let combined = [];
     if (isDevnet) {
@@ -629,8 +656,6 @@ export default function HomePage() {
     } else {
       combined = [...history.btcMain.data, ...history.ethMain.data, ...history.solMain.data];
     }
-    // Sort by date (assuming history items have a 'timestamp' or 'date' field)
-    // You might need to adjust this depending on your history data structure
     return combined; 
   }, [history, isDevnet]);
 
@@ -646,42 +671,28 @@ export default function HomePage() {
   const displayTotal = calculateTotalBalance();
   const isHistoryLoading = Object.values(history).some(h => h.loading);
 
-  // --- RENDER GUARDS ---
-  
-  // 1. If locked, show password screen immediately
   if (isWalletLocked) return <InputPassword />;
+  // Small fix: Added "|| loadingBalances" so spinner shows if data exists but is updating
+  if (!walletData) return <div className="h-screen bg-gray-50 flex items-center justify-center font-bold text-gray-400"><Spinner /></div>;
 
-  // 2. If unlocked but data is missing (refreshing/loading), show spinner
-  if (!walletData) {
-    return (
-        <div className="h-screen w-full bg-[#FAFAFA] flex items-center justify-center">
-            <Spinner className="w-8 h-8 text-zinc-900" />
-        </div>
-    );
-  }
-
-  // 3. Render Dashboard
   return (
-    <div className="md:h-210 bg-[#FAFAFA] text-gray-900 font-sans flex flex-col items-center relative overflow-hidden">
-      <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-size-[24px_24px]"></div>
+    <div className="md:h-210 bg-[#FAFAFA] text-gray-900 font-sans flex flex-col items-center">
+       <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-size-[24px_24px]"></div>
       
-      {/* Background Ambience */}
       <div className="fixed top-0 left-0 w-full h-96 bg-linear-to-b from-gray-100 to-transparent -z-10"></div>
 
-      {/* Main Container */}
-      <div className="w-full max-w-7xl px-4 py-6 md:p-8 flex flex-col min-h-screen lg:h-screen relative z-10">
+      <div className="w-full max-w-7xl px-4 py-6 md:p-8 flex flex-col min-h-screen lg:h-screen">
         
-        {/* HEADER */}
-        <div className="flex justify-between items-center mb-6 md:mb-8 shrink-0">
+        <div className="flex z-6 justify-between items-center mb-6 md:mb-8 shrink-0">
           <div className="flex items-center gap-3">
              <div className="w-10 h-10 md:w-11 md:h-11 bg-black rounded-[14px] flex items-center justify-center text-white shadow-lg shadow-black/10">
-                <CypherLogo />
+                <CypherLogo></CypherLogo>
              </div>
              <span className="font-bold text-xl md:text-2xl tracking-wider text-zinc-900">Cipher </span>
           </div>
           
           <div className="flex items-center gap-2 md:gap-3">
-            <div className={`h-11 px-3 md:px-4 rounded-[14px] border flex items-center gap-2 transition-all duration-300 ${
+          <div className={`h-11 px-3 md:px-4 rounded-[14px] border flex items-center gap-2 transition-all duration-300 ${
                 isOnline 
                 ? 'bg-zinc-100 border-emerald-300 text-emerald-900' 
                 : 'bg-zinc-100 border-red-500 text-red-600'
@@ -691,15 +702,15 @@ export default function HomePage() {
                     {isOnline ? 'Online' : 'No Network'}
                 </span>
             </div>
+            
             <button 
-              onClick={refreshBalances} 
+              onClick={() => refreshBalances(true)} 
               className="p-3 rounded-[14px] bg-white border border-gray-100 text-zinc-400 hover:text-black hover:shadow-md active:scale-95 transition-all duration-200"
               title="Refresh Data"
             >
               <RefreshCw size={20} className={loadingBalances ? "animate-spin" : ""} />
             </button>
 
-            {/* SETTINGS DROPDOWN */}
             <div className="relative" ref={settingsRef}>
                 <button 
                     onClick={() => setSettingsOpen(!settingsOpen)}
@@ -759,7 +770,6 @@ export default function HomePage() {
           {/* LEFT COLUMN: BALANCE & ASSETS */}
           <div className="flex flex-col gap-4 md:gap-6 h-auto lg:h-full lg:min-h-0">
             
-            {/* Total Balance Card */}
             <div className="bg-white rounded-[32px] p-6 md:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 flex flex-col justify-between shrink-0 h-auto lg:h-60">
                 <div>
                     <div className="flex justify-between items-start mt-2 md:mt-5 mb-4">
@@ -778,11 +788,9 @@ export default function HomePage() {
                 </div>
             </div>
 
-            {/* Assets List */}
-            <div className="bg-white rounded-[32px] p-6 md:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 h-80 lg:flex-1 flex flex-col overflow-hidden">
-                <h3 className="font-bold uppercase tracking-tight mb-4 md:mb-6 shrink-0">Your Assets</h3>
-                
-                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3">
+            <div className={`bg-white rounded-[32px] p-6 md:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 h-80 flex flex-col md:min-h-100 overflow-hidden `}>
+                <h3 className=" font-bold uppercase tracking-tight mb-4 md:mb-6 shrink-0">Your Assets</h3>
+               <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3">
                     <AssetRow 
                         ticker="BTC" 
                         name="Bitcoin" 
@@ -813,12 +821,10 @@ export default function HomePage() {
 
           {/* RIGHT COLUMN: ACTIONS & HISTORY */}
           <div className="flex flex-col gap-4 md:gap-6 h-auto lg:h-full lg:min-h-0">
-            
-            {/* Quick Actions */}
             <div className="bg-white rounded-[32px] p-6 md:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 shrink-0 h-auto lg:h-60 flex flex-col justify-center">
                  <h2 className="font-bold text-zinc-900 mb-4 md:mb-6">Quick Actions</h2>
                  <div className="grid grid-cols-3 gap-3 md:gap-6 h-28 lg:h-full">
-                      <ActionButton 
+                     <ActionButton 
                         icon={<Send size={24} />} 
                         label="Send" 
                         onClick={() => setModalOpen('send')}
@@ -840,15 +846,13 @@ export default function HomePage() {
                 </div>
             </div>
 
-            {/* Transaction History */}
-            <div className="bg-white rounded-[32px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 overflow-hidden flex flex-col h-80 lg:flex-1">
+            <div className={`bg-white rounded-[32px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 overflow-hidden flex flex-col min-h-100`}>
                 <TransactionHistory 
                     transactions={displayedHistory} 
                     loading={isHistoryLoading} 
                     onRefresh={refreshAllHistory}
                 />
             </div>
-
           </div>
         </div>
       </div>
@@ -861,7 +865,7 @@ export default function HomePage() {
           walletData={walletData}  
           balances={balances}
           onTxSuccess={() => {
-              refreshBalances();
+              refreshBalances(true); 
               refreshAllHistory();
           }}
         />
@@ -886,8 +890,7 @@ export default function HomePage() {
 }
 
 // --- SUB-COMPONENTS ---
-
-const ActionButton = ({ icon, label, onClick, disabled }) => (
+const ActionButton = ({ icon, label, onClick, disabled, secondary }) => (
   <button 
     onClick={onClick}
     disabled={disabled}

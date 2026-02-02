@@ -28,30 +28,42 @@ export default function InputPassword() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   
-  const { setIsWalletLocked } = useWallet();
+  // 1. Destructure setWalletData here
+  const { setIsWalletLocked, setWalletData } = useWallet();
 
   const unlock = async () => {
     setError("");
     setIsLoading(true);
 
+    // Small timeout to allow UI to render loading state
     setTimeout(() => {
       try {
         const secret = localStorage.getItem("secret");
+        
+        // This operation is heavy, so it might block the UI slightly without the timeout
         const wallet = decodeSecret(secret, password);
 
-        if (!wallet) {
+        if (!wallet || wallet.error) {
           setError("Incorrect password. Please try again.");
           setIsLoading(false);
           return;
         }
 
+        // 2. CRITICAL FIX: Save the wallet data to context!
+        setWalletData(wallet);
+
         sessionStorage.setItem("wallet_pwd", password);
+        
+        // 3. Unlock the view
         setIsWalletLocked(false);
+        
+        // No need to set isLoading(false) here as the component unmounts immediately
       } catch (err) {
+        console.error(err);
         setError("An unexpected error occurred.");
         setIsLoading(false);
       }
-    }, 500);
+    }, 100); 
   };
 
  const handleLogout = () => {
@@ -62,11 +74,9 @@ export default function InputPassword() {
   if (!confirmed) return;
 
   localStorage.clear();
-
-  // redirect to root and reload
+  sessionStorage.clear();
   window.location.href = "/";
 };
-
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
@@ -77,7 +87,6 @@ export default function InputPassword() {
   return (
     <div className="min-h-screen w-full bg-[#FAFAFA] flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans text-zinc-900">
       
-      {/* 1. Grid Pattern with Fade Out (Mask) */}
       <div 
         className="absolute inset-0 pointer-events-none bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-size-[24px_24px]"
         style={{
@@ -86,7 +95,6 @@ export default function InputPassword() {
         }}
       ></div>
       
-      {/* 2. Top Right Logout Button */}
       <div className="absolute top-6 right-6 z-20">
         <button 
             onClick={handleLogout}
@@ -97,9 +105,8 @@ export default function InputPassword() {
         </button>
       </div>
 
-      <div className="relative z-10 w-full max-w-100 flex flex-col items-center">
+      <div className="relative z-10 w-full max-w-md flex flex-col items-center">
         
-        {/* 3. Floating Badge (Light) */}
         <div className="mb-8 animate-in slide-in-from-top-4 fade-in duration-700">
             <div className="bg-white px-5 py-2.5 rounded-full border border-gray-100 flex items-center gap-2.5 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
                 <div className="p-1 bg-black rounded-full">
@@ -111,7 +118,6 @@ export default function InputPassword() {
             </div>
         </div>
 
-        {/* 4. Main Card (White) */}
         <Card className="w-full bg-white border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] animate-in fade-in zoom-in-95 slide-in-from-bottom-4 duration-700 delay-100">
           <CardHeader className="text-center space-y-3 pb-2">
             <CardTitle className="text-xl font-bold text-zinc-900 tracking-tight">
@@ -152,7 +158,6 @@ export default function InputPassword() {
                   </button>
               </div>
 
-              {/* Error Message */}
               {error && (
                 <div className="flex items-center justify-center gap-2 text-red-500 text-xs font-medium animate-in slide-in-from-top-1 fade-in duration-300">
                   <AlertCircle className="w-3.5 h-3.5" />
