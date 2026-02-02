@@ -1,7 +1,7 @@
 export const BitcoinIcon = () => (
   <svg
-    width="35"
-    height="35"
+    width="30"
+    height="30"
     viewBox="0 0 64 64"
     fill="currentColor"
     xmlns="http://www.w3.org/2000/svg"
@@ -11,8 +11,8 @@ export const BitcoinIcon = () => (
 );
 export const EthereumIcon = () => (
   <svg
-    width="24"
-    height="24"
+    width="30"
+    height="30"
     viewBox="0 0 256 417"
     fill="currentColor"
     xmlns="http://www.w3.org/2000/svg"
@@ -27,8 +27,8 @@ export const EthereumIcon = () => (
 
 export const SolanaIcon = () => (
   <svg
-    width="24"
-    height="24"
+    width="30"
+    height="30"
     viewBox="0 0 397 311"
     fill="currentColor"
     xmlns="http://www.w3.org/2000/svg"
