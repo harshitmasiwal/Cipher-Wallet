@@ -47,12 +47,7 @@ export default function HomePage() {
     solDev: { data: [], loading: false },
   });
 
-  // --- ICONS ---
 
-
-  // --- API FUNCTIONS ---
-  
-  // 1. Extract fetchPrices so we can reuse it
   const fetchPrices = async () => {
     try {
         const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd");
