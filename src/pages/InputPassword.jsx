@@ -54,12 +54,19 @@ export default function InputPassword() {
     }, 500);
   };
 
-  const handleLogout = () => {
-    if (window.confirm("Are you sure? This will remove the wallet from this device. Make sure you have your recovery phrase saved.")) {
-      localStorage.clear();
-      window.location.reload(); 
-    }
-  };
+ const handleLogout = () => {
+  const confirmed = window.confirm(
+    "Are you sure? This will remove the wallet from this device. Make sure you have your recovery phrase saved."
+  );
+
+  if (!confirmed) return;
+
+  localStorage.clear();
+
+  // redirect to root and reload
+  window.location.href = "/";
+};
+
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
