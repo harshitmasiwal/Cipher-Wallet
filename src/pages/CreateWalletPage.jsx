@@ -55,7 +55,7 @@ export default function CreateWalletPage() {
       localStorage.setItem("secret", secret);
 
       setIsLoading(false);
-      navigate("/home");
+      navigate("/");
 
       // refresh AFTER navigation
       setTimeout(() => {

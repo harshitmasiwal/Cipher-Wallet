@@ -49,7 +49,7 @@ const ImportWalletPage = () => {
         const mnemonicString = words.join(" ");
         const secret = await walletSetup(password, mnemonicString);
         localStorage.setItem("secret", secret);
-        navigate("/home");
+        navigate("/");
           setTimeout(() => {
         window.location.reload();
       }, 50);
