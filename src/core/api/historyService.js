@@ -25,10 +25,12 @@ const getBtcHistory = async (address, isTestnet) => {
     const { data } = await axios.get(`${base}/address/${address}/txs`);
 
     return data.slice(0, 5).map((tx) => {
+      // Determine if sent or received
       const sent = tx.vin.some(
         (v) => v.prevout?.scriptpubkey_address === address
       );
 
+      // Calculate value based on direction
       const value = sent
         ? tx.vout.reduce(
             (a, o) =>
@@ -43,7 +45,10 @@ const getBtcHistory = async (address, isTestnet) => {
 
       return {
         id: tx.txid,
-        date: new Date(tx.status.block_time * 1000).toLocaleDateString(),
+        // FIX: Check if block_time exists. If not, it's unconfirmed/pending.
+        date: tx.status.block_time
+          ? new Date(tx.status.block_time * 1000).toLocaleDateString()
+          : "Pending", 
         type: sent ? "SENT" : "RECEIVED",
         amount: (value / 1e8).toFixed(6),
         symbol: isTestnet ? "tBTC" : "BTC",
@@ -51,11 +56,11 @@ const getBtcHistory = async (address, isTestnet) => {
         network: isTestnet ? "Bitcoin Testnet" : "Bitcoin Mainnet",
       };
     });
-  } catch {
+  } catch (error) {
+    console.error("BTC History Error:", error);
     return [];
   }
 };
-
 export const fetchBtcMainHistory = (a) => getBtcHistory(a, false);
 export const fetchBtcTestHistory = (a) => getBtcHistory(a, true);
 

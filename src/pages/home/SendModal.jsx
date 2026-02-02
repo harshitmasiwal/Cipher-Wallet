@@ -248,12 +248,6 @@ export default function SendModal({
   };
 
   const handleSend = async () => {
-    if (chain === "BTC" && isDevnet) {
-      setErrorMsg("Sending Bitcoin on Testnet is disabled for maintenance.");
-      setStatus("error");
-      return;
-    }
-
     setStatus("sending");
     setErrorMsg("");
 

@@ -42,7 +42,7 @@ function deriveBitcoin(seed, network, path) {
   const root = bip32.fromSeed(seed, network);
   const node = root.derivePath(path);
 
-  const address = bitcoin.payments.p2pkh({
+  const address = bitcoin.payments.p2wpkh({
     pubkey: Buffer.from(node.publicKey),
     network,
   }).address;

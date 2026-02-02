@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { Connection, PublicKey, Transaction, SystemProgram, sendAndConfirmTransaction, Keypair } from "@solana/web3.js";
-import { networks, Psbt } from "bitcoinjs-lib"; 
+import { payments, networks, Psbt } from "bitcoinjs-lib"; 
 import { ECPairFactory } from "ecpair";
 import * as ecc from "tiny-secp256k1";
 import bs58 from "bs58";
@@ -19,7 +19,8 @@ const RPC_URLS = {
   SOL_MAINNET: "https://go.getblock.us/a96b66d159e543ad96b7276d0d638fae",
   SOL_DEVNET: "https://api.devnet.solana.com",
   BTC_MAINNET: "https://mempool.space/api",
-  BTC_TESTNET: "https://mempool.space/testnet/api",
+  // CHANGE THIS LINE: Use mempool.space for testnet to support /v1/fees/recommended
+  BTC_TESTNET: "https://mempool.space/testnet/api", 
 };
 
 
@@ -202,6 +203,8 @@ export const sendBtc = async (privateKeyWIF, fromAddress, toAddress, amount, isT
 
     const cleanRecipient = toAddress.trim();
     const cleanFromAddress = fromAddress.trim();
+    
+    // Calculate amount in Satoshis
     const satoshisToSend = Math.floor(Number(amount) * 100_000_000);
 
     if (isNaN(satoshisToSend) || satoshisToSend <= 0) {
@@ -215,6 +218,14 @@ export const sendBtc = async (privateKeyWIF, fromAddress, toAddress, amount, isT
         throw new Error(`Invalid Private Key. Network mismatch?`);
     }
 
+    // --- SEGWIT PREPARATION ---
+    // We generate the P2WPKH script to prove ownership for witnessUtxo
+    const p2wpkh = payments.p2wpkh({
+        pubkey: keyPair.publicKey,
+        network: network,
+    });
+
+    // Fetch UTXOs
     const { data: utxos } = await axios.get(`${apiUrl}/address/${cleanFromAddress}/utxo`);
 
     if (!utxos || utxos.length === 0) {
@@ -229,24 +240,33 @@ export const sendBtc = async (privateKeyWIF, fromAddress, toAddress, amount, isT
     let totalInput = 0;
     let inputCount = 0;
 
+    // --- INPUT SELECTION ---
     for (const utxo of utxos) {
-      const { data: txHex } = await axios.get(`${apiUrl}/tx/${utxo.txid}/hex`);
-      
+      // FIX: Use witnessUtxo (SegWit) logic.
+      // This allows us to skip fetching the full transaction Hex.
       psbt.addInput({
         hash: utxo.txid,
         index: utxo.vout,
-        nonWitnessUtxo: Buffer.from(txHex, 'hex'),
+        witnessUtxo: {
+          script: p2wpkh.output, 
+          value: BigInt(utxo.value), // FIX: BigInt required for newer lib versions
+        },
       });
 
       totalInput += utxo.value;
       inputCount++;
       
+      // Fee Calc: (Inputs * 148) + (2 Outputs * 34) + 10 overhead
+      // Note: 148 is a conservative estimate for SegWit (which is usually smaller), 
+      // but we keep it to ensure your tx confirms quickly as requested.
       const currentSize = (inputCount * 148) + (2 * 34) + 10;
       const currentFee = currentSize * feeRate;
       
+      // Stop adding inputs if we have enough to cover amount + fee
       if (totalInput >= satoshisToSend + currentFee) break; 
     }
 
+    // Final Fee Recalculation based on exact input count
     const finalSize = (inputCount * 148) + (2 * 34) + 10;
     const calculatedFee = finalSize * feeRate;
 
@@ -256,16 +276,25 @@ export const sendBtc = async (privateKeyWIF, fromAddress, toAddress, amount, isT
 
     const change = totalInput - satoshisToSend - calculatedFee;
 
+    // --- OUTPUTS ---
     try {
-        psbt.addOutput({ address: cleanRecipient, value: satoshisToSend });
+        psbt.addOutput({ 
+            address: cleanRecipient, 
+            value: BigInt(satoshisToSend) // FIX: Cast to BigInt
+        });
     } catch (err) {
-        throw new Error(`Address Mismatch.`);
+        throw new Error(`Address Mismatch. Ensure you are sending to a ${isTestnet ? 'Testnet' : 'Mainnet'} address.`);
     }
 
-    if (change > 546) {
-      psbt.addOutput({ address: cleanFromAddress, value: change });
+    // Change Output
+    if (change > 546) { // Dust limit
+      psbt.addOutput({ 
+          address: cleanFromAddress, 
+          value: BigInt(change) // FIX: Cast to BigInt
+      });
     }
 
+    // --- SIGN & BROADCAST ---
     psbt.signAllInputs(keyPair);
     psbt.finalizeAllInputs();
     
